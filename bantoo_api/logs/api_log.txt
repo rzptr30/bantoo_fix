@@ -1,0 +1,20 @@
+[2025-05-25 20:31:32] CREATE API accessed
+[2025-05-25 20:31:32] Raw request data: {"title":"Test Campaign","description":"Ini adalah campaign test yang dibuat secara manual.","target_amount":1000000,"image_url":"","is_emergency":true}
+[2025-05-25 20:31:32] Database connection established
+[2025-05-25 20:31:32] Decoded data: {
+    "title": "Test Campaign",
+    "description": "Ini adalah campaign test yang dibuat secara manual.",
+    "target_amount": 1000000,
+    "image_url": "",
+    "is_emergency": true
+}
+[2025-05-25 20:31:32] Prepared query: INSERT INTO donasi 
+              (title, description, target_amount, collected_amount, foto, image_url, 
+               target, current, nominal, pesan, progress, deadline, is_emergency) 
+              VALUES 
+              (:title, :description, :target_amount, :collected_amount, :foto, :image_url,
+               :target, :current, :nominal, :pesan, :progress, :deadline, :is_emergency)
+[2025-05-25 20:31:32] Sanitized data for insertion: {"title":"Test Campaign","description":"Ini adalah campaign test yang dibuat secara manual.","target_amount":1000000,"collected_amount":0,"foto":null,"image_url":"","target":1000000,"current":0,"nominal":0,"pesan":null,"progress":0,"deadline":"2025-06-24","is_emergency":1}
+[2025-05-25 20:31:32] Executing query...
+[2025-05-25 20:31:32] Query executed with result: true
+[2025-05-25 20:31:32] Insert successful! Last insert ID: 1
