@@ -1,155 +1,91 @@
 <?php
-// Headers
-header('Access-Control-Allow-Origin: *');
 header('Content-Type: application/json');
-header('Access-Control-Allow-Methods: POST');
-header('Access-Control-Allow-Headers: Access-Control-Allow-Headers, Content-Type, Access-Control-Allow-Methods, Authorization, X-Requested-With');
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: GET, POST');
+header('Access-Control-Allow-Headers: Content-Type');
 
-// Fungsi untuk logging
-function logMessage($message) {
-    $logDir = __DIR__ . '/logs';
-    
-    // Buat direktori log jika belum ada
-    if (!file_exists($logDir)) {
-        mkdir($logDir, 0777, true);
-    }
-    
-    $logFile = $logDir . '/campaign_log.txt';
-    $timestamp = date('Y-m-d H:i:s');
-    $logEntry = "[$timestamp] $message" . PHP_EOL;
-    
-    // Tulis ke file log
-    file_put_contents($logFile, $logEntry, FILE_APPEND);
+// Handle preflight OPTIONS request
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit();
 }
 
-// Log akses ke API
-logMessage("CREATE CAMPAIGN API accessed");
-
-// Tangkap raw input data
-$raw_data = file_get_contents("php://input");
-logMessage("Raw request data: $raw_data");
-
-// Koneksi database
-include_once 'config/database.php';
-
-try {
-    // Inisialisasi database
-    $database = new Database();
-    $db = $database->connect();
-    logMessage("Database connection established");
-
-    // Mendapatkan data dari request
-    $data = json_decode($raw_data);
-
-    // Log data yang diterima
-    logMessage("Decoded data: " . json_encode($data, JSON_PRETTY_PRINT));
-
-    // Validasi data
-    if (!isset($data->title) || !isset($data->description) || !isset($data->target_amount)) {
-        $response = [
-            'success' => false,
-            'message' => 'Judul, deskripsi dan target donasi diperlukan'
-        ];
-        logMessage("Validation failed: " . json_encode($response));
-        echo json_encode($response);
-        exit();
-    }
-
-    // Buat query insert sederhana
-    $query = "INSERT INTO donasi 
-              (title, description, target_amount, collected_amount, image_url, deadline, is_emergency) 
-              VALUES 
-              (:title, :description, :target_amount, :collected_amount, :image_url, :deadline, :is_emergency)";
-    
-    // Prepare statement
-    $stmt = $db->prepare($query);
-    logMessage("Prepared query: $query");
-    
-    // Sanitize dan siapkan data
-    $title = htmlspecialchars(strip_tags($data->title));
-    $description = htmlspecialchars(strip_tags($data->description));
-    $target_amount = isset($data->target_amount) ? $data->target_amount : 0;
-    $collected_amount = 0; // Selalu dimulai dari 0
-    $image_url = isset($data->image_url) ? htmlspecialchars(strip_tags($data->image_url)) : '';
-    
-    // Format deadline dengan benar
-    if (isset($data->deadline)) {
-        // Cek apakah deadline dalam format timestamp atau ISO string
-        if (is_string($data->deadline) && strpos($data->deadline, 'T') !== false) {
-            // Format ISO string ke format date MySQL
-            $deadline_date = new DateTime($data->deadline);
-            $deadline = $deadline_date->format('Y-m-d');
-        } else {
-            $deadline = $data->deadline;
-        }
-    } else {
-        $deadline = date('Y-m-d', strtotime('+30 days'));
-    }
-    
-    $is_emergency = isset($data->is_emergency) ? ($data->is_emergency ? 1 : 0) : 0;
-    
-    // Log sanitized data
-    logMessage("Sanitized data for insertion: " . json_encode([
-        'title' => $title,
-        'description' => $description,
-        'target_amount' => $target_amount,
-        'collected_amount' => $collected_amount,
-        'image_url' => $image_url,
-        'deadline' => $deadline,
-        'is_emergency' => $is_emergency
-    ]));
-    
-    // Bind data
-    $stmt->bindParam(':title', $title);
-    $stmt->bindParam(':description', $description);
-    $stmt->bindParam(':target_amount', $target_amount);
-    $stmt->bindParam(':collected_amount', $collected_amount);
-    $stmt->bindParam(':image_url', $image_url);
-    $stmt->bindParam(':deadline', $deadline);
-    $stmt->bindParam(':is_emergency', $is_emergency);
-    
-    // Execute query
-    logMessage("Executing query...");
-    $result = $stmt->execute();
-    logMessage("Query executed with result: " . ($result ? "true" : "false"));
-    
-    if ($result) {
-        $lastInsertId = $db->lastInsertId();
-        logMessage("Insert successful! Last insert ID: $lastInsertId");
-        
-        $response = [
-            'success' => true,
-            'message' => 'Campaign berhasil ditambahkan',
-            'id' => $lastInsertId
-        ];
-        echo json_encode($response);
-    } else {
-        $errorInfo = $stmt->errorInfo();
-        logMessage("Insert failed! Error: " . json_encode($errorInfo));
-        
-        $response = [
-            'success' => false,
-            'message' => 'Campaign gagal ditambahkan',
-            'error' => $errorInfo[2] ?? 'Unknown error'
-        ];
-        echo json_encode($response);
-    }
-    
-} catch(PDOException $e) {
-    logMessage("Database error: " . $e->getMessage());
-    
-    $response = [
+// Check if request is POST
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    echo json_encode([
         'success' => false,
-        'message' => 'Database error: ' . $e->getMessage()
-    ];
-    echo json_encode($response);
-} catch(Exception $e) {
-    logMessage("General error: " . $e->getMessage());
-    
-    $response = [
-        'success' => false,
-        'message' => 'Error: ' . $e->getMessage()
-    ];
-    echo json_encode($response);
+        'message' => 'Only POST requests are allowed'
+    ]);
+    exit();
 }
+
+// Get the request body
+$input = file_get_contents('php://input');
+$data = json_decode($input, true);
+
+// Validate required fields
+if (!isset($data['title']) || !isset($data['description']) || !isset($data['target_amount'])) {
+    echo json_encode([
+        'success' => false,
+        'message' => 'Missing required fields: title, description, or target_amount'
+    ]);
+    exit();
+}
+
+// Database connection parameters
+$host = "localhost"; // Or your database host
+$username = "root"; // Your database username
+$password = ""; // Your database password
+$database = "bantoo_db"; // Your database name
+
+// Create connection
+$conn = new mysqli($host, $username, $password, $database);
+
+// Check connection
+if ($conn->connect_error) {
+    echo json_encode([
+        'success' => false,
+        'message' => 'Database connection failed: ' . $conn->connect_error
+    ]);
+    exit();
+}
+
+// Extract and sanitize data
+$title = $conn->real_escape_string($data['title']);
+$description = $conn->real_escape_string($data['description']);
+$targetAmount = floatval($data['target_amount']);
+$collectedAmount = isset($data['collected_amount']) ? floatval($data['collected_amount']) : 0.0;
+$imageUrl = isset($data['image_url']) ? $conn->real_escape_string($data['image_url']) : '';
+$deadline = isset($data['deadline']) ? $conn->real_escape_string($data['deadline']) : date('Y-m-d H:i:s', strtotime('+30 days'));
+$isEmergency = isset($data['is_emergency']) ? ($data['is_emergency'] ? 1 : 0) : 0;
+$progress = isset($data['progress']) ? floatval($data['progress']) : 0.0;
+
+// Check if target amount is reasonable (not too large)
+if ($targetAmount > 1000000000000) { // 1 trillion limit
+    echo json_encode([
+        'success' => false,
+        'message' => 'Target amount is too large, maximum allowed is 1 trillion'
+    ]);
+    exit();
+}
+
+// SQL to insert a record
+$sql = "INSERT INTO campaigns (title, description, target_amount, collected_amount, image_url, deadline, is_emergency, progress, created_at, updated_at) 
+        VALUES ('$title', '$description', $targetAmount, $collectedAmount, '$imageUrl', '$deadline', $isEmergency, $progress, NOW(), NOW())";
+
+if ($conn->query($sql) === TRUE) {
+    $campaign_id = $conn->insert_id;
+    echo json_encode([
+        'success' => true,
+        'message' => 'Campaign created successfully',
+        'campaign_id' => $campaign_id
+    ]);
+} else {
+    echo json_encode([
+        'success' => false,
+        'message' => 'Error creating campaign: ' . $conn->error
+    ]);
+}
+
+$conn->close();
 ?>

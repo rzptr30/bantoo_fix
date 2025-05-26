@@ -6,9 +6,11 @@ plugins {
 }
 
 android {
+    // Hanya gunakan ndkVersion ini dan hapus yang satunya
+    ndkVersion = "27.0.12077973"
     namespace = "com.example.pemmob"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    // ndkVersion = flutter.ndkVersion  <-- Hapus atau beri komentar baris ini
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11

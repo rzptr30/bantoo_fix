@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
 import '../models/donasi_ini.dart';
 import '../services/api_service.dart';
+import 'settings_screen.dart';
 
 class AddCampaignScreen extends StatefulWidget {
-  final Donasi? existingDonasi; // Null jika tambah baru, berisi data jika edit
-  
-  const AddCampaignScreen({
-    Key? key,
-    this.existingDonasi,
-  }) : super(key: key);
+  final Donasi? existingDonasi;
+
+  const AddCampaignScreen({super.key, this.existingDonasi});
 
   @override
   State<AddCampaignScreen> createState() => _AddCampaignScreenState();
@@ -16,7 +14,6 @@ class AddCampaignScreen extends StatefulWidget {
 
 class _AddCampaignScreenState extends State<AddCampaignScreen> {
   final _formKey = GlobalKey<FormState>();
-  
   late TextEditingController _titleController;
   late TextEditingController _descriptionController;
   late TextEditingController _targetAmountController;
@@ -24,14 +21,16 @@ class _AddCampaignScreenState extends State<AddCampaignScreen> {
   bool _isEmergency = false;
   bool _isLoading = false;
   String _errorMessage = '';
-  
+
   @override
   void initState() {
     super.initState();
-    
-    // Inisialisasi controller dengan data yang sudah ada jika dalam mode edit
-    _titleController = TextEditingController(text: widget.existingDonasi?.title ?? '');
-    _descriptionController = TextEditingController(text: widget.existingDonasi?.description ?? '');
+    _titleController = TextEditingController(
+      text: widget.existingDonasi?.title ?? ''
+    );
+    _descriptionController = TextEditingController(
+      text: widget.existingDonasi?.description ?? ''
+    );
     _targetAmountController = TextEditingController(
       text: (widget.existingDonasi?.targetAmount ?? widget.existingDonasi?.target ?? '')
           .toString()
@@ -41,6 +40,18 @@ class _AddCampaignScreenState extends State<AddCampaignScreen> {
       text: widget.existingDonasi?.imageUrl ?? widget.existingDonasi?.foto ?? ''
     );
     _isEmergency = widget.existingDonasi?.isEmergency ?? false;
+    
+    // Check server connection when screen initializes
+    _checkServerConnection();
+  }
+  
+  Future<void> _checkServerConnection() async {
+    bool isConnected = await ApiService.testConnection();
+    if (!isConnected && mounted) {
+      setState(() {
+        _errorMessage = 'Tidak dapat terhubung ke server. Periksa koneksi jaringan Anda atau status server.';
+      });
+    }
   }
   
   @override
@@ -62,11 +73,30 @@ class _AddCampaignScreenState extends State<AddCampaignScreen> {
       _errorMessage = '';
     });
     
+    // First check connectivity
+    bool isConnected = await ApiService.testConnection();
+    if (!isConnected && mounted) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Tidak dapat terhubung ke server. Periksa koneksi jaringan Anda atau status server.';
+      });
+      return;
+    }
+    
     try {
       final title = _titleController.text.trim();
       final description = _descriptionController.text.trim();
       final targetAmount = double.tryParse(_targetAmountController.text.replaceAll(',', '')) ?? 0.0;
       final imageUrl = _imageUrlController.text.trim();
+      
+      // Validate target amount to prevent large number issues
+      if (targetAmount > 1000000000000) { // 1 trillion limit
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Jumlah target terlalu besar. Maksimal 1 triliun.';
+        });
+        return;
+      }
       
       print('Saving campaign with title: $title');
       print('Target amount: $targetAmount');
@@ -109,16 +139,18 @@ class _AddCampaignScreenState extends State<AddCampaignScreen> {
             : 'Campaign berhasil ditambahkan')),
         );
         Navigator.pop(context, true); // true menandakan sukses
-      } else {
+      } else if (mounted) {
         setState(() {
-          _errorMessage = 'Gagal menyimpan campaign. Cek log konsol untuk detail.';
+          _errorMessage = 'Gagal menyimpan campaign. Coba periksa koneksi atau coba lagi nanti.';
         });
       }
     } catch (e) {
       print('Error in _saveCampaign: $e');
-      setState(() {
-        _errorMessage = 'Error: $e';
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Error: $e';
+        });
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -133,6 +165,24 @@ class _AddCampaignScreenState extends State<AddCampaignScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.existingDonasi != null ? 'Edit Campaign' : 'Tambah Campaign'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsScreen()),
+              );
+              if (mounted) {
+                setState(() {
+                  _errorMessage = ''; // Clear error message after settings
+                });
+                _checkServerConnection(); // Check again after returning from settings
+              }
+            },
+            tooltip: 'Pengaturan Server',
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: Column(
@@ -150,8 +200,7 @@ class _AddCampaignScreenState extends State<AddCampaignScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Tampilkan pesan error jika ada
-                    if (_errorMessage.isNotEmpty)
+                    if (_errorMessage.isNotEmpty) ...[
                       Container(
                         padding: const EdgeInsets.all(12),
                         margin: const EdgeInsets.only(bottom: 16),
@@ -160,12 +209,58 @@ class _AddCampaignScreenState extends State<AddCampaignScreen> {
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(color: Colors.red),
                         ),
-                        child: Text(
-                          _errorMessage,
-                          style: const TextStyle(color: Colors.red),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                              _errorMessage,
+                              style: TextStyle(color: Colors.red.shade900),
+                            ),
+                            const SizedBox(height: 8),
+                            ElevatedButton.icon(
+                              onPressed: () async {
+                                setState(() {
+                                  _isLoading = true;
+                                  _errorMessage = '';
+                                });
+                                
+                                // Test connection and update UI
+                                bool isConnected = await ApiService.testConnection();
+                                
+                                if (mounted) {
+                                  setState(() {
+                                    _isLoading = false;
+                                    if (!isConnected) {
+                                      _errorMessage = 'Masih tidak dapat terhubung ke server. Periksa pengaturan server.';
+                                    }
+                                  });
+                                }
+                              },
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('Coba Lagi'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red.shade900,
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            TextButton(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (context) => const SettingsScreen()),
+                                ).then((_) {
+                                  if (mounted) {
+                                    _checkServerConnection();
+                                  }
+                                });
+                              },
+                              child: const Text('Buka Pengaturan Server'),
+                            ),
+                          ],
                         ),
                       ),
-                    
+                    ],
                     TextFormField(
                       controller: _titleController,
                       decoration: const InputDecoration(
@@ -173,7 +268,7 @@ class _AddCampaignScreenState extends State<AddCampaignScreen> {
                         border: OutlineInputBorder(),
                       ),
                       validator: (value) {
-                        if (value == null || value.isEmpty) {
+                        if (value == null || value.trim().isEmpty) {
                           return 'Judul tidak boleh kosong';
                         }
                         return null;
@@ -186,9 +281,9 @@ class _AddCampaignScreenState extends State<AddCampaignScreen> {
                         labelText: 'Deskripsi',
                         border: OutlineInputBorder(),
                       ),
-                      maxLines: 4,
+                      maxLines: 5,
                       validator: (value) {
-                        if (value == null || value.isEmpty) {
+                        if (value == null || value.trim().isEmpty) {
                           return 'Deskripsi tidak boleh kosong';
                         }
                         return null;
@@ -198,17 +293,24 @@ class _AddCampaignScreenState extends State<AddCampaignScreen> {
                     TextFormField(
                       controller: _targetAmountController,
                       decoration: const InputDecoration(
-                        labelText: 'Target Donasi (Rp)',
+                        labelText: 'Target Donasi',
                         border: OutlineInputBorder(),
+                        prefixText: 'Rp ',
                       ),
                       keyboardType: TextInputType.number,
                       validator: (value) {
-                        if (value == null || value.isEmpty) {
+                        if (value == null || value.trim().isEmpty) {
                           return 'Target donasi tidak boleh kosong';
                         }
-                        final number = double.tryParse(value.replaceAll(',', ''));
-                        if (number == null || number <= 0) {
-                          return 'Target donasi harus berupa angka positif';
+                        final parsedValue = double.tryParse(value.replaceAll(',', ''));
+                        if (parsedValue == null) {
+                          return 'Target donasi harus berupa angka';
+                        }
+                        if (parsedValue <= 0) {
+                          return 'Target donasi harus lebih besar dari 0';
+                        }
+                        if (parsedValue > 1000000000000) {
+                          return 'Target donasi terlalu besar (max 1 triliun)';
                         }
                         return null;
                       },
@@ -217,39 +319,42 @@ class _AddCampaignScreenState extends State<AddCampaignScreen> {
                     TextFormField(
                       controller: _imageUrlController,
                       decoration: const InputDecoration(
-                        labelText: 'URL Gambar',
+                        labelText: 'Link Gambar',
                         border: OutlineInputBorder(),
                         hintText: 'https://example.com/image.jpg',
                       ),
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) {
+                          return 'Link gambar tidak boleh kosong';
+                        }
+                        if (!value.startsWith('http')) {
+                          return 'Link gambar harus dimulai dengan http:// atau https://';
+                        }
+                        return null;
+                      },
                     ),
                     const SizedBox(height: 16),
-                    CheckboxListTile(
-                      title: const Text('Emergency Campaign'),
+                    SwitchListTile(
+                      title: const Text('Kampanye Darurat'),
+                      subtitle: const Text('Tandai sebagai kampanye darurat/mendesak'),
                       value: _isEmergency,
-                      onChanged: (newValue) {
+                      onChanged: (bool value) {
                         setState(() {
-                          _isEmergency = newValue ?? false;
+                          _isEmergency = value;
                         });
                       },
-                      contentPadding: EdgeInsets.zero,
                     ),
                     const SizedBox(height: 24),
                     ElevatedButton(
-                      onPressed: _saveCampaign,
+                      onPressed: _errorMessage.isEmpty ? _saveCampaign : null,
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
+                        disabledBackgroundColor: Colors.grey.shade300,
                       ),
                       child: Text(
-                        widget.existingDonasi != null ? 'UPDATE' : 'SIMPAN',
+                        widget.existingDonasi != null ? 'Update Campaign' : 'Simpan Campaign',
                         style: const TextStyle(fontSize: 16),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                      },
-                      child: const Text('BATAL'),
                     ),
                   ],
                 ),
